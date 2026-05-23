@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { PDFParse } from "pdf-parse";
+import { extractText, getDocumentProxy } from "unpdf";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
@@ -17,23 +17,22 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Convert the uploaded file to a buffer and extract text
+        // Extract text from PDF using unpdf (no worker setup needed)
         const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const parser = new PDFParse({ data: buffer });
-        const pdfData = await parser.getText();
-        const syllabusText = pdfData.text;
+        const pdf = await getDocumentProxy(new Uint8Array(arrayBuffer));
+        const { text } = await extractText(pdf, { mergePages: true });
+        const syllabusText = Array.isArray(text) ? text.join("\n") : text;
 
         // Build the prompt
         const prompt = `You are a strict Teaching Assistant. Answer the user's QUESTION using ONLY the SYLLABUS TEXT provided below. If the answer is not in the text, say exactly: I cannot find this in the syllabus.\n\nSYLLABUS TEXT:\n${syllabusText}\n\nQUESTION:\n${question}`;
 
         // Call Gemini
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
         const result = await model.generateContent(prompt);
         const response = result.response;
-        const text = response.text();
+        const answer = response.text();
 
-        return NextResponse.json({ answer: text });
+        return NextResponse.json({ answer });
     } catch (error: unknown) {
         console.error("Chat API error:", error);
         const message =
